@@ -39,8 +39,4 @@ else
     exit 1
 fi
 
-# Step 4: Run main.py
-echo "Running main.py..."
-python main.py
-
 echo "Setup complete."
