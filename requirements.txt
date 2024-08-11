@@ -1,0 +1,7 @@
+podaac-data-subscriber
+configparser
+django
+numpy
+pandas
+requests
+netCDF4
