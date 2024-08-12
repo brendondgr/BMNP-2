@@ -18,8 +18,10 @@ enddate = enddate.strftime('%Y-%m-%d')
 # Create an instance of BMNP_Data
 download = True
 database = False
-singles = True
+singles = False
 bulk = False
+recreate_csv = True
 
 data = BMNP_Data(startdate, enddate, downloadnew=download, downloadtype='loop',
-                    create_databases=database, delete_singles=singles, delete_bulk=bulk)
+                    create_databases=database, delete_singles=singles, delete_bulk=bulk,
+                    recreate_csvs=recreate_csv)

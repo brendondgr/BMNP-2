@@ -124,6 +124,7 @@ class BMNP_Download:
             lons = file.variables['lon'][:]
             lats = file.variables['lat'][:]
             temp = file.variables['analysed_sst'][:]
+            time = file.variables['time'][:]
             
             lon_idx = where((lons >= self.min_lon) & (lons <= self.max_lon))[0]
             lat_idx = where((lats >= self.min_lat) & (lats <= self.max_lat))[0]
@@ -142,21 +143,25 @@ class BMNP_Download:
             # Create dimensions
             new_file.createDimension('lon', len(lons))
             new_file.createDimension('lat', len(lats))
+            new_file.createDimension('time', None)
             
             #  Create variables
             new_lons = new_file.createVariable('lon', 'f4', ('lon',))
             new_lats = new_file.createVariable('lat', 'f4', ('lat',))
-            new_temp = new_file.createVariable('analysed_sst', 'f4', ('lat', 'lon'))
+            new_temp = new_file.createVariable('analysed_sst', 'f4', ('time', 'lat', 'lon'))
+            new_time = new_file.createVariable('time', 'f4', ('time',))
             
             # Add attributes
             new_lons.units = 'degrees_east'
             new_lats.units = 'degrees_north'
             new_temp.units = 'kelvin'
+            new_time.units = 'days since 1981-01-01 00:00:00'
             
             # Add data
             new_lons[:] = lons
             new_lats[:] = lats
             new_temp[:] = temp
+            new_file.variables['time'][:] = time
             
             # Close the files
             file.close()
@@ -180,7 +185,7 @@ class BMNP_Download:
         if day_downloaded: print(f'[{getTime()}] Date: {date} has been downloaded and refined.')
 
 class BMNP_Data:
-    def __init__(self, startdate, enddate, downloadnew = False, downloadtype = 'loop', create_databases = False, delete_singles = False, delete_bulk = False, manually = False):
+    def __init__(self, startdate, enddate, downloadnew = False, downloadtype = 'loop', create_databases = False, delete_singles = False, delete_bulk = False, manually = False, recreate_csvs = False):
         # Read config.ini file
         self.config = ConfigParser()
         self.config.read('config.ini')
@@ -263,7 +268,7 @@ class BMNP_Data:
             self.createDHWs()
         
         # Create CSV files from the refined netCDF files.
-        if not manually: self.recreateCSVs()
+        if not manually and recreate_csvs: self.recreateCSVs()
         
         # Print a statement stating that everything is in order.
         if not manually:
@@ -794,7 +799,7 @@ class BMNP_Data:
                 if path.exists(f"{self.config['folders']['nc_dhw']}{file[0:10]}.nc") or (idx < 84): continue
                 
                 # Check to see if the file has "2010" in its name, if not, skip.
-                # if '2010' not in file: continue
+                # if '2010-06' not in file: continue
                 
                 # Triggers date_change to True, so that the date is changed to the date of the file.
                 date_change = True
@@ -814,7 +819,11 @@ class BMNP_Data:
                     data = nc.Dataset(f"{self.config['folders']['nc_sst']}{date}", 'r')
                     
                     # Get sst data from the file, with the new lat and lon indices
-                    sst_data = data.variables['analysed_sst'][0, min_lat_idx:max_lat_idx, min_lon_idx:max_lon_idx] - 273.14
+                    try:
+                        sst_data = data.variables['analysed_sst'][0, min_lat_idx:max_lat_idx, min_lon_idx:max_lon_idx] - 273.14
+                    except:
+                        print(f'[{self.getHrMnSc()}] There was an issue with the file {date}. Skipping this file.')
+                        continue
                     
                     # Do sst_data - bleaching_threshold
                     sst_data_dailydhw = sst_data - bleaching_threshold
@@ -896,7 +905,11 @@ class BMNP_Data:
                     data = nc.Dataset(f"{self.config['folders']['nc_sst']}{date}.nc", 'r')
                     
                     # Get sst data from the file, with the new lat and lon indices
-                    sst_data = data.variables['analysed_sst'][0, min_lat_idx:max_lat_idx, min_lon_idx:max_lon_idx] - 273.14
+                    try:
+                        sst_data = data.variables['analysed_sst'][0, min_lat_idx:max_lat_idx, min_lon_idx:max_lon_idx] - 273.14
+                    except:
+                        print(f'[{self.getHrMnSc()}] There was an issue with the file {date}. Skipping this file.')
+                        continue
                     
                     # Do sst_data - bleaching_threshold
                     sst_data_dailydhw = sst_data - bleaching_threshold
