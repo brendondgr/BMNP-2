@@ -882,7 +882,7 @@ class BMNP_Data:
                 # Find idx of the date in files list
                 date_idx = where(files == date)[0][0]
                 # Print idx
-                print(f'[{self.getHrMnSc()}] Date Index: {date_idx}')
+                # print(f'[{self.getHrMnSc()}] Date Index: {date_idx}')
                 
                 # If this date is in the first 84 days, skip the iteration.
                 if date_idx < 84: continue
