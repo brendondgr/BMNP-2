@@ -5,3 +5,9 @@ numpy
 pandas
 requests
 netCDF4
+geopandas
+xarray
+rioxarray
+shiny
+shinyswatch
+shinywidgets

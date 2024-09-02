@@ -4,9 +4,12 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from subprocess import run
 import netCDF4 as nc
-from numpy import where, zeros, around, sort, rot90, flip, shape
+from numpy import where, zeros, around, sort, rot90, flip, shape, nanmean
 import os
-from pandas import DataFrame
+from pandas import DataFrame, concat
+
+import warnings
+warnings.filterwarnings('ignore')
 
 class BMNP_Download:
     def __init__(self, dates=[], type = 'loop', manually = False):        
@@ -198,6 +201,20 @@ class BMNP_Data:
         self.nc_dhw = f"{self.config['folders']['nc_dhw']}"
         self.csv_dhw = f"{self.config['folders']['csv_dhw']}"
         
+        self.csv_month_sst = f"{self.config['folders']['monthly_csv_sst']}"
+        self.nc_month_sst = f"{self.config['folders']['monthly_nc_sst']}"
+        self.csv_month_dhw = f"{self.config['folders']['monthly_csv_dhw']}"
+        self.nc_month_dhw = f"{self.config['folders']['monthly_nc_dhw']}"
+        
+        self.pandas_dir = f"{self.config['folders']['csv_dataframes']}"
+        
+        # Make a list of the directories that were just listed.
+        self.dirs = [self.pandas_dir, self.download_dir, self.refined_dir, self.data_dir, self.csv_sst, self.nc_dhw, self.csv_dhw, self.csv_month_sst, self.nc_month_sst, self.csv_month_dhw, self.nc_month_dhw]
+        
+        # Check to see if the directories exist. If not, create them.
+        for directory in self.dirs:
+            if not path.exists(directory): os.mkdir(directory)
+        
         # NOTE: downloadtype is either loop or bulk. Loop will download each file individually. Bulk will download all files at once.
         # Get the start end dates
         self.start_date = self.changeDateLayout(startdate)
@@ -269,6 +286,9 @@ class BMNP_Data:
         
         # Create CSV files from the refined netCDF files.
         if not manually and recreate_csvs: self.recreateCSVs()
+        
+        # Run the monthly calculations
+        if not manually: self.monthlyCalculations()
         
         # Print a statement stating that everything is in order.
         if not manually:
@@ -617,7 +637,10 @@ class BMNP_Data:
             print(f'[{self.getHrMnSc()}] The file "dhw_bmnp.nc" exists in the data folder. This file will be deleted and recreated.')
         
         # Add 1 to the hrcs file to make bleaching_threshold
-        bleaching_threshold = hrcs.variables['variable'][:] + 0.6
+        bleaching_threshold = hrcs.variables['variable'][:] # + 0.6
+        
+        # Do np.flip 0 on the bleaching_threshold
+        # bleaching_threshold = flip(bleaching_threshold, 0)
         
         # Print the bleaching threshold
         # print(f'[{self.getHrMnSc()}] Bleaching Threshold: {bleaching_threshold}')
@@ -749,7 +772,10 @@ class BMNP_Data:
         
         # Add 1 to the hrcs file to make bleaching_threshold
         hrcs = nc.Dataset(f'{self.data_dir}hrcs_mmm.nc', 'r')
-        bleaching_threshold = hrcs.variables['variable'][:] + 1.0
+        bleaching_threshold = hrcs.variables['variable'][:] # + 1.0
+        
+        # flip bleaching_threshold over the y=x axis
+        # bleaching_threshold = flip(bleaching_threshold, 0)
         
         # Gather the lat and lon in both hrcs and sst files, rounding each item in list to 2 decimal places.
         hrcs_lat = hrcs.variables['lat'][:]
@@ -789,6 +815,9 @@ class BMNP_Data:
         new_lat = sst_lat[min_lat_idx:max_lat_idx]
         new_lon = sst_lon[min_lon_idx:max_lon_idx]
         
+        # Reverse order of new_lat list
+        new_lat = new_lat[::-1]
+        
         # Close data
         data.close()
         
@@ -820,7 +849,7 @@ class BMNP_Data:
                     
                     # Get sst data from the file, with the new lat and lon indices
                     try:
-                        sst_data = data.variables['analysed_sst'][0, min_lat_idx:max_lat_idx, min_lon_idx:max_lon_idx] - 273.14
+                        sst_data = data.variables['analysed_sst'][0, min_lat_idx:max_lat_idx, min_lon_idx:max_lon_idx] - 273.15
                     except:
                         print(f'[{self.getHrMnSc()}] There was an issue with the file {date}. Skipping this file.')
                         continue
@@ -838,7 +867,7 @@ class BMNP_Data:
                         total_dhw += sst_data_dailydhw
                 
                 # Round the total_dhw to 2 decimal places
-                total_dhw = around(total_dhw, 2)
+                total_dhw = around(total_dhw/7.0, 2)
                 
                 # Flip total_dhw over the y=x axis
                 total_dhw = flip(total_dhw, 0)
@@ -1015,6 +1044,143 @@ class BMNP_Data:
                 if idx % 1000 == 0:
                     print(f'[{datetime.now().strftime("%H:%M:%S")}] File [{idx} / {len(files)}] was converted to a .csv file.')
 
+    def monthlyCalculations(self):
+        # Delete the files in the pandas, csv_month_sst, nc_month_sst, csv_month_dhw, and nc_month_dhw directories.
+        for file in listdir(self.pandas_dir):
+            remove(f'{self.pandas_dir}{file}')
+        for file in listdir(self.csv_month_sst):
+            remove(f'{self.csv_month_sst}{file}')
+        for file in listdir(self.nc_month_sst):
+            remove(f'{self.nc_month_sst}{file}')
+        for file in listdir(self.csv_month_dhw):
+            remove(f'{self.csv_month_dhw}{file}')
+        for file in listdir(self.nc_month_dhw):
+            remove(f'{self.nc_month_dhw}{file}')
+        
+        printMessages = False
+        # Create 2 pandas dataframes for sst and dhw. Columns will be "Year-Month" and "Average"
+        dhw_df = DataFrame(columns=['Year-Month', 'Average'])
+        sst_df = DataFrame(columns=['Year-Month', 'Average'])
+        
+        # Create a list of items in nc_sst directory.
+        files_sst = listdir(f"{self.refined_dir}")
+        
+        # Create a list of unique dates, specifically for YYYY-MM from files_sst list.
+        dates = [file[0:7] for file in files_sst]
+        
+        # Remove duplicates
+        dates = list(set(dates))
+        dates = sort(dates)
+        
+        # Loop through dates.
+        for year_mon in dates:
+            # Create a list of files that have the same year_mon in their name from files_sst.
+            files = [file for file in files_sst if year_mon in file]
+            
+            if not path.exists(f"{self.nc_dhw}{files[0]}"): doDHW = False
+            else: doDHW = True
+            
+            # Load the first file from the nc_sst directory, then the nc_dhw directory.
+            data_sst = nc.Dataset(f"{self.refined_dir}{files[0]}", 'r')
+            if doDHW: data_dhw = nc.Dataset(f"{self.nc_dhw}{files[0]}", 'r')
+            
+            # Create new numpy arrays for the sst and dhw data.
+            sst_data_tot = zeros(data_sst.variables['analysed_sst'][0, :, :].shape)
+            if doDHW: dhw_data_tot = zeros(data_dhw.variables['dhw'][:].shape)
+            else: dhw_data_tot = zeros(data_sst.variables['analysed_sst'][0, :, :].shape)
+            
+            # Loop through each day and add data to the total data.
+            if printMessages: print(f'[{datetime.now().strftime("%H:%M:%S")}] Doing the calculations for {year_mon}...')
+            for file in files:
+                # Open the file
+                data_sst = nc.Dataset(f"{self.refined_dir}{file}", 'r')
+                if doDHW:  data_dhw = nc.Dataset(f"{self.nc_dhw}{file}", 'r')
+                
+                # Add the data to the total data
+                sst_data_tot += data_sst.variables['analysed_sst'][0, :, :] - 273.15
+                if doDHW: dhw_data_tot += data_dhw.variables['dhw'][:]
+                
+                # Close the files
+                data_sst.close()
+                if doDHW: data_dhw.close()
+            
+            # Divide the total data by the number of days to get the average.
+            sst_data_tot /= len(files)
+            if doDHW: dhw_data_tot /= len(files)
+            
+            # Calculate the average of the sst and dhw data using non-nan values.
+            sst_avg = nanmean(sst_data_tot)
+            if doDHW: dhw_avg = nanmean(dhw_data_tot)
+            
+            # Create a dictionary with the year_mon and average, then concatenate to the dataframes.
+            sst_dict = {'Year-Month': year_mon, 'Average': sst_avg}
+            if doDHW: dhw_dict = {'Year-Month': year_mon, 'Average': dhw_avg}
+            sst_df = concat([sst_df, DataFrame(sst_dict, index=[0])])
+            if doDHW: dhw_df = concat([dhw_df, DataFrame(dhw_dict, index=[0])])
+            
+            # Create a new nc file in self.nc_month_sst, self.nc_month_dhw, and self.csv_month_sst, self.csv_month_dhw, with the corresponding data. Ensure names are correct.
+            if printMessages: print(f'[{datetime.now().strftime("%H:%M:%S")}] Creating the nc and csv files for {year_mon}...')
+            nc_sst = nc.Dataset(f"{self.nc_month_sst}{year_mon}.nc", 'w')
+            nc_dhw = nc.Dataset(f"{self.nc_month_dhw}{year_mon}.nc", 'w')
+            
+            # Load the first file from the nc_sst directory, then the nc_dhw directory.
+            data_sst = nc.Dataset(f"{self.refined_dir}{files[0]}", 'r')
+            if doDHW: data_dhw = nc.Dataset(f"{self.nc_dhw}{files[0]}", 'r')
+            
+            # Create dimensions, no time variables.
+            nc_sst.createDimension('lon', len(data_sst.variables['lon'][:]))
+            nc_sst.createDimension('lat', len(data_sst.variables['lat'][:]))
+            if doDHW: nc_dhw.createDimension('lon', len(data_dhw.variables['lon'][:]))
+            if doDHW: nc_dhw.createDimension('lat', len(data_dhw.variables['lat'][:]))
+            
+            # Create variables
+            nc_sst_lons = nc_sst.createVariable('lon', 'f4', ('lon',))
+            nc_sst_lats = nc_sst.createVariable('lat', 'f4', ('lat',))
+            nc_sst_sst = nc_sst.createVariable('analysed_sst', 'f4', ('lat', 'lon'))
+            if doDHW: nc_dhw_lons = nc_dhw.createVariable('lon', 'f4', ('lon',))
+            if doDHW: nc_dhw_lats = nc_dhw.createVariable('lat', 'f4', ('lat',))
+            if doDHW: nc_dhw_dhw = nc_dhw.createVariable('dhw', 'f4', ('lat', 'lon'))
+            
+            # Add attributes
+            nc_sst_lons.units = 'degrees_east'
+            nc_sst_lats.units = 'degrees_north'
+            nc_sst_sst.units = 'celsius'
+            if doDHW: nc_dhw_lons.units = 'degrees_east'
+            if doDHW: nc_dhw_lats.units = 'degrees_north'
+            if doDHW: nc_dhw_dhw.units = 'degree heating weeks'
+            
+            if printMessages: print(f'[{datetime.now().strftime("%H:%M:%S")}] Adding data to the nc files...')
+            # Add data
+            nc_sst_lons[:] = data_sst.variables['lon'][:]
+            nc_sst_lats[:] = data_sst.variables['lat'][:]
+            nc_sst_sst[:] = sst_data_tot
+            if doDHW: nc_dhw_lons[:] = data_dhw.variables['lon'][:]
+            if doDHW: nc_dhw_lats[:] = data_dhw.variables['lat'][:]
+            if doDHW: nc_dhw_dhw[:] = dhw_data_tot
+            
+            if printMessages: print(f'[{datetime.now().strftime("%H:%M:%S")}] Creating the csv files...')
+            # Create a csv file from the nc file, with the lat and lon included in the index and columns.
+            df_sst = DataFrame(sst_data_tot, index=data_sst.variables['lat'][:], columns=data_sst.variables['lon'][:])
+            if doDHW: df_dhw = DataFrame(dhw_data_tot, index=data_dhw.variables['lat'][:], columns=data_dhw.variables['lon'][:])
+            df_sst.to_csv(f"{self.csv_month_sst}{year_mon}.csv")
+            if doDHW: df_dhw.to_csv(f"{self.csv_month_dhw}{year_mon}.csv")
+            
+            if printMessages: print(f'[{datetime.now().strftime("%H:%M:%S")}] Closing the nc files...')
+            # Close the files
+            nc_sst.close()
+            if doDHW: nc_dhw.close()
+            
+            # Print a message saying the year is done calculating if year_mon has "12" in the last two characters.
+            if year_mon[-2:] == '12':
+                print(f'[{datetime.now().strftime("%H:%M:%S")}] Average calculations have been completed for {year_mon[0:4]}.')
+        
+        # Create a csv file from the dataframes, with the year_mon and average included in the index and columns.
+        sst_df.to_csv(f"{self.pandas_dir}sst_monthly_averages.csv")
+        dhw_df.to_csv(f"{self.pandas_dir}dhw_monthly_averages.csv")
+        
+        # Print a message stating that the monthly calculations have been completed.
+        print(f'[{datetime.now().strftime("%H:%M:%S")}] Monthly calculations have been completed.')
+        
 if __name__ == '__main__':
     startdate = '2002-06-01'
     enddate = datetime.today().strftime('%Y-%m-%d')
