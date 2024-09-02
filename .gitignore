@@ -1,6 +1,16 @@
 # Custom Folders and Files
-data/
-notebooks/
+notebooks_main/
+csv_dataframes/
+csv_dhw/
+csv_sst/
+download/
+monthly_csv_dhw/
+monthly_csv_sst/
+monthly_nc_dhw/
+monthly_nc_sst/
+nc_dhw/
+nc_sst/
+hrcs_mmm.nc
 
 
 # Created by https://www.toptal.com/developers/gitignore/api/python
