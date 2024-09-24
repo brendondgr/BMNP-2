@@ -11,3 +11,6 @@ rioxarray
 shiny
 shinyswatch
 shinywidgets
+matplotlib
+ipyleaflet
+ipykernel

@@ -115,9 +115,10 @@ def server(input, output, session):
         data = data.variables['dhw'][:]
         
         # Calculate the average, from non-nan values
-        average = np.nanmean(data)
+        # Round average to 2 decimal places
+        average = round(np.nanmean(data), 2)
         
-        return average.round(2)
+        return average
 
     # Calculate the average SST
     @render.text()
@@ -131,10 +132,10 @@ def server(input, output, session):
         # Get the dhw data from this
         data = data.variables['analysed_sst'][:]
         
-        # Calculate the average, from non-nan values
-        average = np.nanmean(data)
+        # Round average to 2 decimal places
+        average = round(float(np.nanmean(data))-273.15, 2)
         
-        return f"{(average-273.15).round(2)}" + "°C"
+        return f"{average}°C"
     
     @render.text()
     def dhw_theme():
